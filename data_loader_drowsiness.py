@@ -11,10 +11,8 @@ import math
 import torch
 from torch.utils.data import Dataset, DataLoader
 from utils import StandardScaler
-from constants import INCLUDED_CHANNELS, FREQUENCY
 from data_utils import *
 import utils
-import pyedflib
 from sklearn import preprocessing
 from scipy.signal import welch
 from scipy.integrate import simps
@@ -22,7 +20,6 @@ from pywt import wavedec
 from scipy.signal import butter, lfilter
 import matplotlib.pyplot as plt
 from mne.time_frequency import psd_array_multitaper
-from torchsampler import ImbalancedDatasetSampler
 from scipy.io import loadmat
 
 
@@ -62,9 +59,6 @@ def computeSliceMatrix(
     """
     # get corresponding eeg clip
     signal_array = xdata[:, :]
-    #for i in range(signal_array.shape[0]):
-    #import pdb; pdb.set_trace()
-    #signal_array = butter_bandpass_filter(signal_array, 4, 12, fs, order=3)
     FREQUENCY = 128
     time_step_size = 0.5
     physical_time_step_size = int(FREQUENCY * time_step_size)
@@ -92,8 +86,6 @@ def computeSliceMatrix(
 class DrowsyDataset(Dataset):
     def __init__(
             self,
-            input_dir,
-            raw_data_dir,
             time_step_size=1,
             max_seq_len=60,
             standardize=True,
@@ -130,8 +122,6 @@ class DrowsyDataset(Dataset):
         if (graph_type == 'individual') and (top_k is None):
             raise ValueError('Please specify top_k for individual graph.')
 
-        self.input_dir = input_dir
-        self.raw_data_dir = raw_data_dir
         self.time_step_size = time_step_size
         self.max_seq_len = max_seq_len
         self.standardize = standardize
@@ -149,6 +139,7 @@ class DrowsyDataset(Dataset):
         leave_out_sub = sub_num
 
         filename = r"drowsy_11subs_balanced_1880_5s_128hz.mat"
+        tmp = sio.loadmat(filename)
         xdata = np.array(tmp['EEG_sample'])
         label = np.array(tmp['labels']) - 1
         subIdx = np.array(tmp['sub_index'])
@@ -391,11 +382,11 @@ class DrowsyDataset(Dataset):
         # convert to tensors
         # (max_seq_len, num_nodes, input_dim)
         x = torch.FloatTensor(padded_feature)
-        y = torch.LongTensor([ydata])
+        y = torch.LongTensor(ydata)
         seq_len = torch.LongTensor([seq_len])
 
         # Get adjacency matrix for graph
-        if self.graph_type == 'individual':
+        if self.graph_type == 'combined':
             #eeg_clip = eeg_clip.squeeze()
             indiv_adj_mat = self._get_indiv_graphs(eeg_clip, swap_nodes)
             indiv_supports = self._compute_supports(indiv_adj_mat)
@@ -413,8 +404,6 @@ class DrowsyDataset(Dataset):
         return (xdata,x, y, seq_len, indiv_supports, indiv_adj_mat)
 
 def load_dataset_classification(
-        input_dir,
-        raw_data_dir,
         train_batch_size,
         test_batch_size=None,
         time_step_size=1,
@@ -468,9 +457,7 @@ def load_dataset_classification(
         else:
             data_augment = False  # no augmentation on dev/test sets
 
-        dataset = DrowsyDataset(input_dir=input_dir,
-                                 raw_data_dir=raw_data_dir,
-                                 time_step_size=time_step_size,
+        dataset = DrowsyDataset(time_step_size=time_step_size,
                                  max_seq_len=max_seq_len,
                                  standardize=standardize,
                                  scaler=scaler,

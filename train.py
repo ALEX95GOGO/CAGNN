@@ -16,7 +16,6 @@ from json import dumps
 from model import DCRNNModel_classification
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-from dotted_dict import DottedDict
 from torch.optim.lr_scheduler import CosineAnnealingLR
 import copy
 from scipy.io import savemat
@@ -53,8 +52,6 @@ def main(args):
                 # Build dataset
                 log.info('Building dataset...')
                 dataloaders, _ = load_dataset_classification(
-                    input_dir=args.input_dir,
-                    raw_data_dir=args.raw_data_dir,
                     train_batch_size=args.train_batch_size,
                     test_batch_size=args.test_batch_size,
                     time_step_size=args.time_step_size,
@@ -67,7 +64,6 @@ def main(args):
                     top_k=args.top_k,
                     filter_type=args.filter_type,
                     use_fft=args.use_fft,
-                    preproc_dir=args.preproc_dir,
                     sub_num = sub_num,
                     input_dim = num_features)
         

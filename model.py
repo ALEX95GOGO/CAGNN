@@ -3,8 +3,12 @@ Some code are adapted from https://github.com/liyaguang/DCRNN
 and https://github.com/xlwang233/pytorch-DCRNN, which are
 licensed under the MIT License.
 """
-from data.data_utils import computeFFT
-from model.cell import DCGRUCell
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from data_utils import computeFFT
+from cell import DCGRUCell
 from torch.autograd import Variable
 import utils
 import numpy as np
@@ -15,8 +19,6 @@ import torch.nn.functional as F
 import random
 from torch.nn import Conv1d, MaxPool1d, Linear, GRU
 from torch.nn.parameter import Parameter
-from torch_geometric.utils import to_dense_adj, get_laplacian
-from torch_geometric.utils.sparse import dense_to_sparse
 import scipy.io as sio
 import math
 import os
@@ -372,38 +374,6 @@ class Batchlayer(torch.nn.Module):
 
         return data * gammamatrix + betamatrix
 
-'''
-class ScaledDotProductAttention(nn.Module):
-    """
-    Scaled Dot-Product Attention proposed in "Attention Is All You Need"
-    Compute the dot products of the query with all keys, divide each by sqrt(dim),
-    and apply a softmax function to obtain the weights on the values
-    Args: dim, mask
-        dim (int): dimention of attention
-        mask (torch.Tensor): tensor containing indices to be masked
-    Inputs: query, key, value, mask
-        - **query** (batch, q_len, d_model): tensor containing projection vector for decoder.
-        - **key** (batch, k_len, d_model): tensor containing projection vector for encoder.
-        - **value** (batch, v_len, d_model): tensor containing features of the encoded input sequence.
-        - **mask** (-): tensor containing indices to be masked
-    Returns: context, attn
-        - **context**: tensor containing the context vector from attention mechanism.
-        - **attn**: tensor containing the attention (alignment) from the encoder outputs.
-    """
-    def __init__(self, dim: int):
-        super(ScaledDotProductAttention, self).__init__()
-        self.sqrt_dim = np.sqrt(dim)
-
-    def forward(self, query: Tensor, key: Tensor, value: Tensor, mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
-        score = torch.bmm(query, key.transpose(1, 2)) / self.sqrt_dim
-
-        if mask is not None:
-            score.masked_fill_(mask.view(score.size()), -float('Inf'))
-
-        attn = F.softmax(score, -1)
-        context = torch.bmm(attn, value)
-        return context, attn
-'''        
 ########## Model for seizure classification/detection ##########
 class DCRNNModel_classification(nn.Module):
     def __init__(self, args, num_classes, aptinit=None,device=None, training=True):
@@ -535,10 +505,6 @@ class DCRNNModel_classification(nn.Module):
         
         batch_size, max_seq_len = input_seq.shape[0], input_seq.shape[1]
 
-        # (max_seq_len, batch, num_nodes, input_dim)
-
-        # initialize the hidden state of the encoder
-        #input_seq = torch.cat([input_seq[:,:,0:7], input_seq[:,:,8:16], input_seq[:,:,17:]], dim=2)
         init_hidden_state = self.encoder.init_hidden(
             batch_size).to(self._device)
         
@@ -547,107 +513,19 @@ class DCRNNModel_classification(nn.Module):
 
         se_score, input_seq_se = self.se(x.permute(0,3,2,1))
         se_score = se_score.squeeze()
-        #import pdb; pdb.set_trace()
-        '''
-        if self.training == False:
-            print(se_score.shape)
-            if os.path.exists("se_score_32.mat"):
-              se_score_cat = sio.loadmat("se_score_32.mat")["se_score"]
-              se_score_cat = torch.cat((torch.from_numpy(se_score_cat).cuda(),se_score),0)
-            else:
-              se_score_cat = se_score
-            sio.savemat("se_score_32.mat",{"se_score": se_score_cat.cpu().detach().numpy()})
-        '''
-        #print(torch.mean(se_score,0))
-        
+
         input_seq_se = input_seq_se.permute(0,2,3,1)
- 
-        #x_in = torch.zeros(input_seq.permute(0,3,1,2).shape).cuda()
-        #for seq in range(6):
-        
-        #q = self.w1(input_seq.permute(0,3,1,2))
-        #k = self.w2(input_seq.permute(0,3,1,2))
-        #v = self.w3(input_seq.permute(0,3,1,2))
-        #import pdb; pdb.set_trace()
-        #multihead_attn = nn.MultiheadAttention(10, 2, batch_first=True).cuda()
-        #attn_output, attn_output_weights = multihead_attn(q[:,:,0], k[:,:,0], v[:,:,0])
-        #for ii in range(6):
-        
-        #q = q.permute(0,2,1,3).reshape(batch_size*6,3,5)
-        #k = k.permute(0,2,1,3).reshape(batch_size*6,3,5)
-        #att_score = torch.softmax(torch.bmm(q, k.permute(0,2,1)),2)
-        #print(att_score[0,0])
-        #x_in = torch.matmul(att_score,input_seq.reshape(batch_size*6,30,3).permute(0,2,1))
-        #x_in = x_in.reshape(batch_size,6,30,3)
         x = input_seq.permute(0,3,2,1)
         #x_seq = x_in.permute(0,2,1)
         x_seq = x[:,:,:].reshape(-1, 30, 10*self.input_dim)
-        #xa = self.bnlin(x_seq)
-        #adj_6=torch.zeros(6,adj_mat.shape[0],30,30).cuda()
-        #for ii in range(6):
-        #    x_seq = x[:,:,ii]
-        #xa = self.bnlin(x_seq/x_seq.max())
-        #xa = self.bnlin((x_seq-x_seq.min())/(x_seq.max()-x_seq.min()))
         xa = torch.tanh(self.bnlin((x_seq-x_seq.min())/(x_seq.max()-x_seq.min())))
         
         #xa = torch.tanh(self.bnlin(x_seq)/x_seq.max())
         adj = torch.bmm(xa, xa.transpose(2, 1))  # /self.bn_features
         adj = torch.sigmoid(adj)
         adj = (adj-adj.min())/(adj.max()-adj.min())
-        #import pdb; pdb.set_trace()
-        #adj = (adj-torch.min(adj,0))/(torch.max(adj,0)-torch.min(adj,0))
-        
-        '''
-        if self.training == False:
-            #print(se_score.shape)
-            if os.path.exists("adj_score.mat"):
-              adj_cat = sio.loadmat("adj_score.mat")["adj_score"]
-              adj_cat = torch.cat((torch.from_numpy(adj_cat).cuda(),adj),0)
-            else:
-              adj_cat = adj
-            sio.savemat("adj_score.mat",{"adj_score": adj_cat.cpu().detach().numpy()})
-        '''
-        
-        #import pdb; pdb.set_trace()
-        #adj = torch.tanh(adj)
-        #adj = torch.nn.ReLU()(adj)
-        #print(adj)
-        #adj_6[ii]=adj
-        #adj = torch.softmax(adj, 2)
-
-        #adj = adj_mat
-        #amask = torch.ones(xa.size(0), self.channels, self.channels).cuda()
-        #amask.fill_(0.0)
-        #s, t = adj.topk(self.topk, 2)
-        #import pdb; pdb.set_trace()
-        #amask.scatter_(2, t, s.fill_(1))
-
-        #score_mat = sio.loadmat('adj_score_sub1.mat')['adj_score']
-        #rank_score_mat = np.sum(np.sum(score_mat,axis=0),axis=0)
-        #order = rank_score_mat.argsort()
-        #order = 29-order
-        #import pdb; pdb.set_trace()
-        #if block_chan != None:
-        #    for ii in range(1,block_chan+1):
-        #        amask[:,order[ii]]=0
-        #        amask[order[ii],:]=0
-        
-        #adj = adj * amask
-        #graph_loss += sparsity_ratio * torch.sum(torch.pow(out_adj, 2)) / int(np.prod(out_adj.shape))
         adj_ori_batch = adj
-        #import pdb; pdb.set_trace()
-        #for k in range(adj_mat.shape[0]):
-        #    adj_ori_batch[k] = adj
-        #self.P_hat_symm = create_symm_matrix_from_vec(self.P_vec.cpu(), self.num_nodes)  # Ensure symmetry
-        #print(adj)
         adj_batch = torch.zeros(adj_mat.shape).cuda()
-        #adj_batch = torch.zeros(6,adj_mat.shape[0],30,30).cuda()
-
-        #adj_i = torch.zeros(adj_mat.shape).cuda()
-        #for k in range(adj_mat.shape[0]):
-        #    adj_i[k] = adj
-        #import pdb; pdb.set_trace()
-        #for aa in range(6):
         
         
         for ii in range(adj_mat.shape[0]):
@@ -666,32 +544,13 @@ class DCRNNModel_classification(nn.Module):
             # Create norm_adj = (D + I)^(-1/2) * (A + I) * (D + I) ^(-1/2)
             norm_adj = torch.mm(torch.mm(D_tilde_exp, A_tilde), D_tilde_exp).cuda()
             sum_adj = sum(norm_adj)
-            #order = sum_adj.argsort()
-            #rank = order.argsort()
-            #for k in range(self.topk):
-            #    norm_adj[rank==k,:]=0
-            #    norm_adj[:,rank==k]=0
             adj_batch[ii] = norm_adj
             #import pdb; pdb.set_trace()
-        #amask = torch.ones(xa.size(0), self.channels, self.channels).cuda()
-        #amask.fill_(0.0)
-        #s, t = adj_batch.topk(self.topk, 2)
-        #amask.scatter_(2, t, s.fill_(1))
-        #adj_batch = adj_batch * amask
-
         #adj_batch = adj
 
         supports = [adj_batch]
-        #supports.append(adj_batch)
-        #supports = adj_batch
-        #    supports.append(adj_batch)
         input_seq_se = torch.transpose(input_seq_se, dim0=0, dim1=1)
         input_seq = torch.transpose(input_seq, dim0=0, dim1=1)
-        
-        #x_in = torch.transpose(input_seq, dim0=0, dim1=1)
-        #input_seq_att = torch.transpose(input_seq_att, dim0=0, dim1=1)
-        #input_seq_att = input_seq_att.cuda()
-        #output_hidden, final_hidden = self.encoder(x_in, init_hidden_state, supports)
         output_hidden, final_hidden = self.encoder(input_seq_se, init_hidden_state, supports)
         # (batch_size, max_seq_len, rnn_units*num_nodes)
 
@@ -701,62 +560,6 @@ class DCRNNModel_classification(nn.Module):
             output, seq_lengths, batch_first=True)  # (batch_size, rnn_units*num_nodes)
         # (batch_size, num_nodes, rnn_units)
         last_out = last_out.view(batch_size, self.num_nodes, self.rnn_units)
-
-        '''
-        # decoder
-        if self.training and self.use_curriculum_learning and (
-                batches_seen is not None):
-            teacher_forcing_ratio = utils.compute_sampling_threshold(
-                self.cl_decay_steps, batches_seen)
-        else:
-            teacher_forcing_ratio = None
-        outputs = self.decoder(
-            decoder_inputs,
-            output_hidden,
-            supports,
-            teacher_forcing_ratio=teacher_forcing_ratio)  # (seq_len, batch_size, num_nodes * output_dim)
-
-
-        
-        # final FC layer
-        logits = self.fc(self.relu(self.dropout(last_out)))
-
-        # max-pooling over nodes
-        pool_logits, _ = torch.max(logits, dim=1)  # (batch_size, num_classes)
-        #import pdb; pdb.set_trace()
-        '''
-        #layer1_output = output_hidden[0].view(batch_size, self.num_nodes, self.rnn_units)
-        #adj_copy = adj.clone()
-        #node_score1 = self.gcn1(adj, layer1_output.to(self._device))
-        # print(torch.mean(node_score,0))
-        #node_score1 = self.act1(node_score1)
-        #mask1 = topk(node_score1, self.keep_ratio)
-
-        #last_out1 = layer1_output * torch.unsqueeze(mask1, 2).cuda()
-        #mask_X1 = last_out1 * node_score1
-        #max_X1, _ = torch.max(last_out, dim=1)
-        #mean_X1 = torch.mean(last_out, dim=1)
-        #readout1 = torch.cat([
-        #    max_X1,
-        #    mean_X1,
-        #], dim=1)
-
-        #adj_copy = adj.clone()
-        #node_score = self.gcn(adj_copy, last_out)
-        #node_score = F.softmax(node_score)
-        #node_score = self.act(node_score)
-        #print(node_score[0])
-        #import pdb; pdb.set_trace()
-        #mask = topk(node_score, self.keep_ratio)
-
-        #last_out = last_out * torch.unsqueeze(mask, 2).cuda()
-        #print(torch.where(mask[0] == 1))
-        #print(node_score[0])
-        #mask_X = last_out * node_score
-
-        # final FC layer
-        #import pdb; pdb.set_trace()
-        
         max_X, _ = torch.max(last_out, dim=1)
         mean_X = torch.mean(last_out, dim=1)
         readout = torch.cat([
@@ -764,37 +567,7 @@ class DCRNNModel_classification(nn.Module):
             mean_X,
         ], dim=1)
 
-        '''
-        if self.training == False:
-            print(readout.shape)
-            if os.path.exists("readout.mat"):
-              readout_cat = sio.loadmat("readout.mat")["readout"]
-              readout_cat = torch.cat((torch.from_numpy(readout_cat).cuda(),readout),0)
-            else:
-              readout_cat = readout
-            sio.savemat("readout.mat",{"readout": readout_cat.cpu().detach().numpy()})
-            readout = readout.to(self._device)
-        '''
         xdata = xdata.unsqueeze(1)
-        '''
-        intermediate = self.conv(xdata)
-        intermediate = self.batch(intermediate)
-        #intermediate = self.batchnorm(intermediate)
-        intermediate = torch.nn.ELU()(intermediate)    
-        intermediate = self.GAP(intermediate)
-        intermediate = intermediate.view(intermediate.size()[0], -1)
-        
-        intermediate = self.pointwise(xdata)    
-        intermediate = self.depthwise(intermediate)    
-        intermediate = self.activ(intermediate) 
-        intermediate = self.batchnorm(intermediate)
-        intermediate = self.GAP(intermediate)
-        intermediate = intermediate.view(intermediate.size()[0], -1)
-        '''
-        #import pdb; pdb.set_trace()
-        #readout = readout+readout1
-        # logits = self.fc3(self.relu(self.dropout(self.fc2(self.relu(self.dropout(self.fc1(self.relu(self.dropout(mask_X)))))))))
-        #readout = torch.cat((readout,intermediate),1)
         pool_logits = self.mlp(readout)
         #pool_logits = nn.LogSoftmax(dim=1)(pool_logits)
 
@@ -819,7 +592,3 @@ class SE_Block(torch.nn.Module):
         y = self.excitation(y).view(bs, c, 1, 1)
         #print(torch.mean(y,0).squeeze())
         return y, x * y.expand_as(x)
-
-
-    
-
