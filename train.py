@@ -288,7 +288,7 @@ def evaluate(
                                         y=y_true_all,
                                         y_prob=y_prob_all,
                                         file_names=file_name_all,
-                                        average="binary" if args.task == "detection" else "weighted")
+                                        average="weighted")
 
     eval_loss = nll_meter.avg if (nll_meter is not None) else loss.item()
     results_list = [('loss', eval_loss),
