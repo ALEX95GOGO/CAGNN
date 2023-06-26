@@ -225,120 +225,6 @@ def get_degree_matrix(adj):
     return torch.diag(sum(adj))
 
 
-class GraphConvolution(nn.Module):
-    """图卷积层
-    """
-
-    def __init__(self, input_dim, output_dim, use_bias=True):
-        """图卷积层
-
-            SAGPool中使用图卷积层计算每个图中每个节点的score
-
-            Inputs:
-            -------
-            input_dim: int, 输入特征维度
-            output_dim: int, 输出特征维度
-            use_bias: boolean, 是否使用偏置
-
-        """
-
-        super(GraphConvolution, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.use_bias = use_bias
-        self.weight = nn.Parameter(torch.Tensor(input_dim, output_dim))
-
-        if self.use_bias:
-            self.bias = nn.Parameter(torch.Tensor(output_dim))
-        else:
-            self.register_parameter('bias', None)
-
-        self.__init_parameters()
-
-        return
-
-    def __init_parameters(self):
-        """初始化权重和偏置
-        """
-
-        nn.init.kaiming_normal_(self.weight)
-        if self.use_bias:
-            nn.init.zeros_(self.bias)
-
-        return
-
-    def forward(self, adjacency, X):
-        """图卷积层前馈
-
-            Inputs:
-            -------
-            adjacency: tensor in shape [num_nodes, num_nodes], 邻接矩阵
-            X: tensor in shape [num_nodes, input_dim], 节点特征
-
-            Output:
-            -------
-            output: tensor in shape [num_nodes, output_dim], 输出
-
-        """
-        #self.weight = nn.Parameter(torch.Tensor(self.input_dim, self.output_dim))
-        #support = torch.bmm(X, self.weight)
-        #output = torch.bmm(adjacency.cuda(), support)
-        support = torch.zeros([X.shape[0],X.shape[1],self.weight.shape[1]]).cuda()
-        output = torch.zeros([X.shape[0], X.shape[1],self.weight.shape[1]]).cuda()
-        for i in range(X.shape[0]):
-            support[i] = torch.mm(X[i], self.weight)
-            output[i] = torch.mm(adjacency[i].cuda(), support[i])
-        if self.use_bias:
-            output += self.bias
-
-        return output
-
-def topk(node_score, keep_ratio):
-    """获取每个图的topk个重要的节点
-
-        Inputs:
-        -------
-        node_score: tensor, GCN计算出的每个节点的score
-        graph_batch: tensor, 指明每个节点所属的图
-        keep_ratio: float, 每个图中topk的节点占所有节点的比例
-
-        Output:
-        -------
-        mask: tensor, 所有节点是否是每张图中topk节点的标记
-
-    """
-
-    # 获得所有图的ID列表
-    #graph_ids = list(set(graph_batch.cpu().numpy()))
-
-    graph_ids = node_score.shape[0]
-    # 用于记录每个图中的节点保留情况
-    #mask = node_score.new_empty((0,), dtype=torch.bool)
-    mask = torch.zeros([node_score.shape[0],node_score.shape[1]])
-
-    for grid_id in range(graph_ids):
-        # 遍历每张图
-
-        # 获得此图中所有节点的score并排序
-        graph_node_score = node_score[grid_id].view(-1)
-        _, sorted_index = graph_node_score.sort(descending=True)
-
-        # 获得此图图中topk节点的k数
-        num_graph_node = len(graph_node_score)
-        num_keep_node = int(keep_ratio * num_graph_node)
-        num_keep_node = max(num_keep_node, 1)
-
-        # 标记此图中的topk节点
-        graph_mask = node_score.new_zeros((num_graph_node,), dtype=torch.bool)
-        graph_mask[sorted_index[:num_keep_node]] = True
-
-        # 拼接所有图的节点标记
-        #mask = torch.cat([mask, graph_mask])
-        mask[grid_id]=graph_mask
-
-
-    return mask
-
 
 """
 We use the batch normalization layer implemented by ourselves for this model instead using the one provided by the Pytorch library.
@@ -445,31 +331,6 @@ class DCRNNModel_classification(nn.Module):
 
         self.bnlin = Linear(enc_input_dim*10, 3)  # Linear Bottleneck layer#(44*32, 32)
         
-        self.w1 = Linear(30, 5)
-        self.w2 = Linear(30, 5)
-        self.w3 = Linear(30, 5)
-        
-        self.training = training
-        kernelLength=64
-        sampleLength=640
-        N1=16
-        d=2
-        self.conv = torch.nn.Conv2d(self.channels,self.channels,(1,kernelLength),groups=30)
-        self.batch = torch.nn.BatchNorm2d(self.channels)
-        self.GAP = torch.nn.AvgPool2d((1,sampleLength-kernelLength+1))
-        #self.bnlin2 = Linear(30, 2)  # Linear Bottleneck layer#(44*32, 32)
-        #self.bnlin3 = Linear(30, 2)  # Linear Bottleneck layer#(44*32, 32)
-        # P_hat needs to be symmetric ==> learn vector representing entries in upper/lower triangular matrix and use to populate P_hat later
-        #self.P_vec_size = int((self.num_nodes * self.num_nodes - self.num_nodes) / 2) + self.num_nodes
-
-        #if self.edge_additions:
-        #    self.P_vec = Parameter(torch.FloatTensor(torch.zeros(self.P_vec_size)))
-        #else:
-        #    self.P_vec = Parameter(torch.FloatTensor(torch.ones(self.P_vec_size)))
-        self.pointwise = torch.nn.Conv2d(1,N1,(self.channels,1))
-        self.depthwise = torch.nn.Conv2d(N1,d*N1,(1,kernelLength),groups=N1) 
-        self.activ=torch.nn.ReLU()       
-        self.batchnorm = torch.nn.BatchNorm2d(d*N1, track_running_stats=True)     
 
     def _compute_supports(self, adj_mat):
         """
@@ -516,7 +377,6 @@ class DCRNNModel_classification(nn.Module):
 
         input_seq_se = input_seq_se.permute(0,2,3,1)
         x = input_seq.permute(0,3,2,1)
-        #x_seq = x_in.permute(0,2,1)
         x_seq = x[:,:,:].reshape(-1, 30, 10*self.input_dim)
         xa = torch.tanh(self.bnlin((x_seq-x_seq.min())/(x_seq.max()-x_seq.min())))
         
@@ -530,9 +390,6 @@ class DCRNNModel_classification(nn.Module):
         
         for ii in range(adj_mat.shape[0]):
             A_tilde = adj[ii] + torch.eye(self.num_nodes).cuda()
-            #A_tilde[A_tilde>1]=1
-            #A_tilde = adj[ii]
-            #A_tilde = torch.eye(self.num_nodes)
             D_tilde = get_degree_matrix(A_tilde).detach()  # Don't need gradient of this
             # Raise to power -1/2, set all infs to 0s
             D_tilde_exp = D_tilde ** (-1 / 2)
@@ -561,11 +418,12 @@ class DCRNNModel_classification(nn.Module):
         # (batch_size, num_nodes, rnn_units)
         last_out = last_out.view(batch_size, self.num_nodes, self.rnn_units)
         max_X, _ = torch.max(last_out, dim=1)
-        mean_X = torch.mean(last_out, dim=1)
-        readout = torch.cat([
-            max_X,
-            mean_X,
-        ], dim=1)
+        #mean_X = torch.mean(last_out, dim=1)
+        #readout = torch.cat([
+        #    max_X,
+        #    mean_X,
+        #], dim=1)
+        readout = max_X
 
         xdata = xdata.unsqueeze(1)
         pool_logits = self.mlp(readout)
